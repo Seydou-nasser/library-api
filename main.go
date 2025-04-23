@@ -1,11 +1,16 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 )
 
 type book struct {
@@ -36,23 +41,64 @@ type updateBookDTO struct {
 	Publisher string  `json:"publisher" binding:"required"`
 }
 
+var secretKey string
+
+const tokenExpireTime = 24 * time.Hour
+
 var books = []book{}
 
 func main() {
 
-	router := gin.Default()
+	if err := godotenv.Load(".env"); err != nil {
+		panic("Impossible de charger le fichier .env : " + err.Error())
+	}
+	secretKey = os.Getenv("secretKey")
+	if secretKey == "" {
+		panic("La variable n'a pas été définie !")
+	}
 
-	router.GET("/api/books", getBooksHandler)
+	r := gin.Default()
 
-	router.GET("/api/books/:id", getBookByIdHandler)
+	r.GET("/api/get-token", func(c *gin.Context) {
+		userID := uuid.New().String()
+		token, err := generateToken(userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Could not generate token"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"token": token})
+	})
 
-	router.POST("/api/books", addBooksHandler)
+	r.GET("/api/verify-token", func(c *gin.Context) {
+		tokenString := c.Query("token")
+		if tokenString == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Token is required"})
+			return
+		}
 
-	router.PUT("/api/books/:id", updateBooksByIdHandler)
+		err := verifyToken(tokenString)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"message": "Invalid token", "details": err.Error(), "token": tokenString})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Token is valid"})
+	})
 
-	router.DELETE("/api/books/:id", deleteBookById)
+	sr := r.Group("/api")
 
-	router.Run("localhost:8080")
+	sr.Use(authMiddleware)
+
+	sr.GET("/books", getBooksHandler)
+
+	sr.GET("/books/:id", getBookByIdHandler)
+
+	sr.POST("/books", addBooksHandler)
+
+	sr.PUT("/books/:id", updateBooksByIdHandler)
+
+	sr.DELETE("/books/:id", deleteBookById)
+
+	r.Run("localhost:8080")
 }
 
 func getBooksHandler(c *gin.Context) {
@@ -63,7 +109,7 @@ func getBookByIdHandler(c *gin.Context) {
 	id := c.Param("id")
 	for _, bk := range books {
 		if bk.ID == id {
-			c.IndentedJSON(http.StatusOK, bk) // et non StatusFound
+			c.IndentedJSON(http.StatusOK, bk)
 			return
 		}
 	}
@@ -144,4 +190,47 @@ func deleteBookById(c *gin.Context) {
 	}
 
 	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "le livre n'existe pas!"})
+}
+
+func generateToken(userID string) (string, error) {
+	claims := jwt.MapClaims{
+		"userId": userID,
+		"exp":    time.Now().Add(tokenExpireTime).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secretKey))
+}
+
+func verifyToken(tokenString string) error {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		return []byte(secretKey), nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if !token.Valid {
+		return fmt.Errorf("token non valide")
+	}
+
+	return nil
+}
+
+func authMiddleware(c *gin.Context) {
+	token := strings.Split(c.Request.Header.Get("Authorization"), " ")
+	if len(token) < 2 {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": "Token es obligatoire"})
+		c.Abort()
+		return
+	}
+
+	err := verifyToken(token[1])
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": "Token non valide"})
+		c.Abort()
+		return
+	}
+
+	c.Next()
 }
