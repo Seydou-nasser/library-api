@@ -69,20 +69,20 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"token": token})
 	})
 
-	r.GET("/api/verify-token", func(c *gin.Context) {
-		tokenString := c.Query("token")
-		if tokenString == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "Token is required"})
-			return
-		}
+	// r.GET("/api/verify-token", func(c *gin.Context) {
+	// 	tokenString := c.Query("token")
+	// 	if tokenString == "" {
+	// 		c.JSON(http.StatusBadRequest, gin.H{"message": "Token is required"})
+	// 		return
+	// 	}
 
-		err := verifyToken(tokenString)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"message": "Invalid token", "details": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"message": "Token is valid"})
-	})
+	// 	err := verifyToken(tokenString)
+	// 	if err != nil {
+	// 		c.JSON(http.StatusUnauthorized, gin.H{"message": "Invalid token", "details": err.Error()})
+	// 		return
+	// 	}
+	// 	c.JSON(http.StatusOK, gin.H{"message": "Token is valid"})
+	// })
 
 	sr := r.Group("/api")
 
