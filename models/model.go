@@ -8,12 +8,14 @@ type Book struct {
 	Pages     int     `json:"pages"`
 	Price     float64 `json:"price"`
 	Publisher string  `json:"publisher"`
+	UserID    string  `json:"user_id"`
 }
 
 type User struct {
 	ID       string `json:"id"`
 	Username string `json:"username" binding:"required" gorm:"unique"`
 	Password string `json:"password" binding:"required"`
+	Books    []Book `json:"books" gorm:"foreignKey:UserID"`
 }
 
 type AddBookDTO struct {
