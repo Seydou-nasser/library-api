@@ -11,43 +11,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"github.com/seydou-nasser/library-api/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
-
-type book struct {
-	ID        string  `json:"id"`
-	Title     string  `json:"title" gorm:"unique"`
-	Author    string  `json:"author"`
-	Year      int     `json:"year"`
-	Pages     int     `json:"pages"`
-	Price     float64 `json:"price"`
-	Publisher string  `json:"publisher"`
-}
-
-type user struct {
-	ID       string `json:"id"`
-	Username string `json:"username" binding:"required" gorm:"unique"`
-	Password string `json:"password" binding:"required"`
-}
-
-type addBookDTO struct {
-	Title     string  `json:"title" binding:"required"`
-	Author    string  `json:"author" binding:"required"`
-	Year      int     `json:"year" binding:"required"`
-	Pages     int     `json:"pages" binding:"required"`
-	Price     float64 `json:"price" binding:"required"`
-	Publisher string  `json:"publisher" binding:"required"`
-}
-
-type updateBookDTO struct {
-	Title     string  `json:"title" binding:"required"`
-	Author    string  `json:"author" binding:"required"`
-	Year      int     `json:"year" binding:"required"`
-	Pages     int     `json:"pages" binding:"required"`
-	Price     float64 `json:"price" binding:"required"`
-	Publisher string  `json:"publisher" binding:"required"`
-}
 
 var secretKey string
 
@@ -78,20 +45,10 @@ func main() {
 		panic("Failed to connect to database: " + err.Error())
 	}
 
-	db.AutoMigrate(&book{})
-	db.AutoMigrate(&user{})
+	db.AutoMigrate(&models.Book{})
+	db.AutoMigrate(&models.User{})
 
 	r := gin.Default()
-
-	// r.GET("/api/get-token", func(c *gin.Context) {
-	// 	userID := uuid.New().String()
-	// 	token, err := generateToken(userID)
-	// 	if err != nil {
-	// 		c.JSON(http.StatusInternalServerError, gin.H{"message": "Could not generate token"})
-	// 		return
-	// 	}
-	// 	c.JSON(http.StatusOK, gin.H{"token": token})
-	// })
 
 	// Route publique pour la connexion et l'inscription
 	r.POST("/api/login", loginHandler(db))
@@ -120,7 +77,7 @@ func main() {
 
 func getBooksHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var bks []book
+		var bks []models.Book
 		if err := db.Find(&bks).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de la récupération des livres"})
 			return
@@ -132,7 +89,7 @@ func getBooksHandler(db *gorm.DB) gin.HandlerFunc {
 func getBookByIdHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		var bk book
+		var bk models.Book
 		if err := db.First(&bk, "id = ?", id).Error; err != nil {
 			c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Le livre recherché n'existe pas !"})
 			return
@@ -143,7 +100,7 @@ func getBookByIdHandler(db *gorm.DB) gin.HandlerFunc {
 
 func addBooksHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var newAddBook addBookDTO
+		var newAddBook models.AddBookDTO
 
 		if err := c.ShouldBindJSON(&newAddBook); err != nil {
 			if strings.Contains(err.Error(), "required") {
@@ -154,7 +111,7 @@ func addBooksHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		newBook := book{
+		newBook := models.Book{
 			ID:        generateID(),
 			Title:     newAddBook.Title,
 			Author:    newAddBook.Author,
@@ -168,10 +125,7 @@ func addBooksHandler(db *gorm.DB) gin.HandlerFunc {
 		if result.Error != nil {
 			fmt.Println(result.Error)
 			if result.Error == gorm.ErrDuplicatedKey {
-				c.JSON(http.StatusConflict, gin.H{"message": "Le livre existe déjà"})
-				return
-			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'ajout du livre", "error": result.Error.Error()})
+				c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'ajout du livre"})
 				return
 			}
 		}
@@ -184,7 +138,7 @@ func updateBooksByIdHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 
-		var updatedBook updateBookDTO
+		var updatedBook models.UpdateBookDTO
 
 		if err := c.ShouldBindJSON(&updatedBook); err != nil {
 			if strings.Contains(err.Error(), "required") {
@@ -192,9 +146,10 @@ func updateBooksByIdHandler(db *gorm.DB) gin.HandlerFunc {
 			} else {
 				c.JSON(http.StatusBadRequest, gin.H{"message": "Format JSON invalide"})
 			}
+			return
 		}
 
-		result := db.Model(&book{}).Where("id = ?", id).Updates(book{
+		result := db.Model(&models.Book{}).Where("id = ?", id).Updates(models.Book{
 			Title:     updatedBook.Title,
 			Author:    updatedBook.Author,
 			Year:      updatedBook.Year,
@@ -221,7 +176,7 @@ func deleteBookByIdHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 
-		result := db.Delete(&book{}, "id = ?", id)
+		result := db.Delete(&models.Book{}, "id = ?", id)
 		if result.RowsAffected == 0 {
 			c.JSON(http.StatusNotFound, gin.H{"message": "Livre non trouvé"})
 			return
@@ -237,6 +192,8 @@ func deleteBookByIdHandler(db *gorm.DB) gin.HandlerFunc {
 func generateID() string {
 	return uuid.New().String()
 }
+
+// fonction de génération et de vérification du token JWT
 
 func generateToken(userID string) (string, error) {
 	claims := jwt.MapClaims{
@@ -263,6 +220,8 @@ func verifyToken(tokenString string) error {
 	return nil
 }
 
+// middleware d'authentification
+
 func authMiddleware(c *gin.Context) {
 	token := strings.Split(c.Request.Header.Get("Authorization"), " ")
 	if len(token) < 2 {
@@ -285,7 +244,7 @@ func authMiddleware(c *gin.Context) {
 
 func loginHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var loginUser user
+		var loginUser models.User
 		if err := c.ShouldBindJSON(&loginUser); err != nil {
 			if strings.Contains(err.Error(), "required") {
 				c.JSON(http.StatusBadRequest, gin.H{"message": "Champs obligatoires manquants"})
@@ -318,7 +277,7 @@ func loginHandler(db *gorm.DB) gin.HandlerFunc {
 
 func registerHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var newUser user
+		var newUser models.User
 		if err := c.ShouldBindJSON(&newUser); err != nil {
 			if strings.Contains(err.Error(), "required") {
 				c.JSON(http.StatusBadRequest, gin.H{"message": "Champs obligatoires manquants"})
@@ -328,7 +287,7 @@ func registerHandler(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 		}
-		var tp user
+		var tp models.User
 		// Vérifier si l'utilisateur existe déjà dans la base de données
 		result := db.Where("username = ?", newUser.Username).First(&tp)
 		if result.Error == nil {
