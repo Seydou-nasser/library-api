@@ -16,7 +16,7 @@ import (
 )
 
 type book struct {
-	ID        string  `json:"id" gorm:"primaryKey"`
+	ID        string  `json:"id"`
 	Title     string  `json:"title" gorm:"unique"`
 	Author    string  `json:"author"`
 	Year      int     `json:"year"`
@@ -26,7 +26,7 @@ type book struct {
 }
 
 type user struct {
-	ID       string `json:"id" gorm:"primaryKey"`
+	ID       string `json:"id"`
 	Username string `json:"username" binding:"required" gorm:"unique"`
 	Password string `json:"password" binding:"required"`
 }
@@ -53,20 +53,25 @@ var secretKey string
 
 const tokenExpireTime = 24 * time.Hour
 
-var books = []book{}
-
 func main() {
 
 	if err := godotenv.Load(".env"); err != nil {
 		panic("Impossible de charger le fichier .env : " + err.Error())
 	}
+
 	secretKey = os.Getenv("secretKey")
-	if secretKey == "" {
-		panic("La variable n'a pas été définie !")
+	host := os.Getenv("host")
+	port := os.Getenv("port")
+	dbName := os.Getenv("dbName")
+	userN := os.Getenv("user")
+	password := os.Getenv("password")
+
+	if host == "" || port == "" || dbName == "" || userN == "" || password == "" || secretKey == "" {
+		panic("Veillez à remplir tous les champs dans le fichier .env !")
 	}
 
 	// Connect to the PostgreSQL database
-	dsn := "host=localhost user=postgres password=root dbname=libraryDb port=5432 sslmode=disable TimeZone=Asia/Shanghai"
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable", host, userN, password, dbName, port)
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 
 	if err != nil {
