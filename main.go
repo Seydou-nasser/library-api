@@ -51,7 +51,7 @@ type updateBookDTO struct {
 
 var secretKey string
 
-const tokenExpireTime = 24 * time.Hour
+const tokenExpireTime = 1 * time.Minute
 
 func main() {
 
@@ -134,7 +134,7 @@ func getBookByIdHandler(db *gorm.DB) gin.HandlerFunc {
 		id := c.Param("id")
 		var bk book
 		if err := db.First(&bk, "id = ?", id).Error; err != nil {
-			c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Livre non trouvé !"})
+			c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Le livre recherché n'existe pas !"})
 			return
 		}
 		c.IndentedJSON(http.StatusOK, bk)
@@ -346,8 +346,13 @@ func registerHandler(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'inscription"})
 			return
 		}
-
-		c.JSON(http.StatusCreated, newUser)
+		// Générer un token JWT pour l'utilisateur
+		token, err := generateToken(newUser.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de la génération du token"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"token": token})
 
 	}
 }
