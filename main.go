@@ -161,6 +161,7 @@ func addBooksHandler(db *gorm.DB) gin.HandlerFunc {
 
 		result := db.Create(&newBook)
 		if result.Error != nil {
+			fmt.Println(result.Error)
 			if result.Error == gorm.ErrDuplicatedKey {
 				c.JSON(http.StatusConflict, gin.H{"message": "Le livre existe déjà"})
 				return
