@@ -29,15 +29,9 @@ func main() {
 	RefreshTokenSecretKey = env.RefreshTokenSecretKey
 	AccessTokenExpireTime = time.Duration(env.AccessTokenExpiresIn) * time.Minute
 	RefreshTokenExpireTime = time.Duration(env.RefreshTokenExpiresIn) * time.Hour
-	host := env.Host
-	port := env.Port
-	dbName := env.Dbname
-	userN := env.User
-	password := env.Password
-	sslmode := env.Sslmode
 
 	// Connect to the PostgreSQL database
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s", host, userN, password, dbName, port, sslmode)
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s", env.Host, env.User, env.Password, env.Dbname, env.Port, env.Sslmode)
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 
 	if err != nil {
@@ -210,6 +204,82 @@ func getUserBooksHandler(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// handlers de login et register
+func loginHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var loginUser models.User
+		if err := c.ShouldBindJSON(&loginUser); err != nil {
+			if strings.Contains(err.Error(), "required") {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Champs obligatoires manquants"})
+				return
+			} else {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Format JSON invalide"})
+				return
+			}
+		}
+
+		// Vérifier si l'utilisateur existe dans la base de données
+		result := db.Where("username = ? AND password = ?", loginUser.Username, loginUser.Password).First(&loginUser)
+		if result.Error != nil {
+			if result.Error == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusUnauthorized, gin.H{"message": "Nom d'utilisateur ou mot de passe invalide"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de la connexion"})
+			return
+		}
+
+		token, refreshToken, shouldReturn := generateTokenAndRefrechToken(loginUser.ID, c)
+		if shouldReturn {
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"token": token, "refreshToken": refreshToken})
+	}
+}
+
+func registerHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var newUser models.User
+		if err := c.ShouldBindJSON(&newUser); err != nil {
+			if strings.Contains(err.Error(), "required") {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Champs obligatoires manquants"})
+				return
+			} else {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Format JSON invalide"})
+				return
+			}
+		}
+		var tp models.User
+		// Vérifier si l'utilisateur existe déjà dans la base de données
+		result := db.Where("username = ?", newUser.Username).First(&tp)
+		if result.Error == nil {
+			c.JSON(http.StatusConflict, gin.H{"message": "Nom d'utilisateur déjà pris"})
+			return
+		}
+		if result.Error != gorm.ErrRecordNotFound {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'inscription"})
+			return
+		}
+
+		// Créer un nouvel utilisateur dans la base de données
+		newUser.ID = generateID()
+		if err := db.Create(&newUser).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'inscription"})
+			return
+		}
+
+		// Générer un token JWT et un token de rafraichissement pour l'utilisateur
+		token, refreshToken, shouldReturn := generateTokenAndRefrechToken(newUser.ID, c)
+		if shouldReturn {
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"token": token, "refreshToken": refreshToken})
+
+	}
+}
+
 // refresh token handler
 func refreshTokenHandler(c *gin.Context) {
 	token := strings.Split(c.Request.Header.Get("Authorization"), " ")
@@ -337,82 +407,6 @@ func authMiddleware(c *gin.Context) {
 	userID, _ := getUserIDFromToken(token[1])
 	c.Set("userId", userID)
 	c.Next()
-}
-
-// handlers de login et register
-func loginHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var loginUser models.User
-		if err := c.ShouldBindJSON(&loginUser); err != nil {
-			if strings.Contains(err.Error(), "required") {
-				c.JSON(http.StatusBadRequest, gin.H{"message": "Champs obligatoires manquants"})
-				return
-			} else {
-				c.JSON(http.StatusBadRequest, gin.H{"message": "Format JSON invalide"})
-				return
-			}
-		}
-
-		// Vérifier si l'utilisateur existe dans la base de données
-		result := db.Where("username = ? AND password = ?", loginUser.Username, loginUser.Password).First(&loginUser)
-		if result.Error != nil {
-			if result.Error == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusUnauthorized, gin.H{"message": "Nom d'utilisateur ou mot de passe invalide"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de la connexion"})
-			return
-		}
-
-		token, refreshToken, shouldReturn := generateTokenAndRefrechToken(loginUser.ID, c)
-		if shouldReturn {
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"token": token, "refreshToken": refreshToken})
-	}
-}
-
-func registerHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var newUser models.User
-		if err := c.ShouldBindJSON(&newUser); err != nil {
-			if strings.Contains(err.Error(), "required") {
-				c.JSON(http.StatusBadRequest, gin.H{"message": "Champs obligatoires manquants"})
-				return
-			} else {
-				c.JSON(http.StatusBadRequest, gin.H{"message": "Format JSON invalide"})
-				return
-			}
-		}
-		var tp models.User
-		// Vérifier si l'utilisateur existe déjà dans la base de données
-		result := db.Where("username = ?", newUser.Username).First(&tp)
-		if result.Error == nil {
-			c.JSON(http.StatusConflict, gin.H{"message": "Nom d'utilisateur déjà pris"})
-			return
-		}
-		if result.Error != gorm.ErrRecordNotFound {
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'inscription"})
-			return
-		}
-
-		// Créer un nouvel utilisateur dans la base de données
-		newUser.ID = generateID()
-		if err := db.Create(&newUser).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'inscription"})
-			return
-		}
-
-		// Générer un token JWT et un token de rafraichissement pour l'utilisateur
-		token, refreshToken, shouldReturn := generateTokenAndRefrechToken(newUser.ID, c)
-		if shouldReturn {
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"token": token, "refreshToken": refreshToken})
-
-	}
 }
 
 func generateTokenAndRefrechToken(Id string, c *gin.Context) (string, string, bool) {
