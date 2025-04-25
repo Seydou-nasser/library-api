@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/seydou-nasser/library-api/config"
 	"github.com/seydou-nasser/library-api/models"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -219,13 +220,20 @@ func loginHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Vérifier si l'utilisateur existe dans la base de données
-		result := db.Where("username = ? AND password = ?", loginUser.Username, loginUser.Password).First(&loginUser)
+		var dbUser models.User
+		result := db.Where("username = ?", loginUser.Username).First(&dbUser)
 		if result.Error != nil {
 			if result.Error == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusUnauthorized, gin.H{"message": "Nom d'utilisateur ou mot de passe invalide"})
+				c.JSON(http.StatusUnauthorized, gin.H{"message": "Nom d'utilisateur invalide"})
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de la connexion"})
+			return
+		}
+
+		// Vérifier le mot de passe
+		if !checkPasswordHash(loginUser.Password, dbUser.Password) {
+			c.JSON(http.StatusUnauthorized, gin.H{"message": "Mot de passe incorrect"})
 			return
 		}
 
@@ -250,21 +258,21 @@ func registerHandler(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 		}
-		var tp models.User
-		// Vérifier si l'utilisateur existe déjà dans la base de données
-		result := db.Where("username = ?", newUser.Username).First(&tp)
-		if result.Error == nil {
-			c.JSON(http.StatusConflict, gin.H{"message": "Nom d'utilisateur déjà pris"})
-			return
-		}
-		if result.Error != gorm.ErrRecordNotFound {
-			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'inscription"})
-			return
-		}
 
 		// Créer un nouvel utilisateur dans la base de données
 		newUser.ID = generateID()
-		if err := db.Create(&newUser).Error; err != nil {
+		hashedPassword, err := hashPassword(newUser.Password)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors du hachage du mot de passe"})
+			return
+		}
+		newUser.Password = hashedPassword
+		err = db.Create(&newUser).Error
+		if err != nil {
+			if strings.Contains(err.Error(), "23505") { // 23505 Code d'erreur pour les violations de contrainte d'unicité
+				c.JSON(http.StatusConflict, gin.H{"message": "Nom d'utilisateur déjà pris"})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'inscription"})
 			return
 		}
@@ -422,4 +430,20 @@ func generateTokenAndRefrechToken(Id string, c *gin.Context) (string, string, bo
 		return "", "", true
 	}
 	return token, refreshToken, false
+}
+
+func hashPassword(password string) (string, error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hashedPassword), nil
+}
+
+func checkPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	if err != nil {
+		return false
+	}
+	return true
 }
