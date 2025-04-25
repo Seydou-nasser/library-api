@@ -237,7 +237,7 @@ func loginHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		token, refreshToken, shouldReturn := generateTokenAndRefrechToken(loginUser.ID, c)
+		token, refreshToken, shouldReturn := generateTokenAndRefreshToken(loginUser.ID, c)
 		if shouldReturn {
 			return
 		}
@@ -278,7 +278,7 @@ func registerHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Générer un token JWT et un token de rafraichissement pour l'utilisateur
-		token, refreshToken, shouldReturn := generateTokenAndRefrechToken(newUser.ID, c)
+		token, refreshToken, shouldReturn := generateTokenAndRefreshToken(newUser.ID, c)
 		if shouldReturn {
 			return
 		}
@@ -345,43 +345,6 @@ func generateID() string {
 	return uuid.New().String()
 }
 
-// fonction de génération et de vérification du token JWT
-
-func generateToken(userID string) (string, error) {
-	claims := jwt.MapClaims{
-		"userId": userID,
-		"exp":    time.Now().Add(AccessTokenExpireTime).Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(AccessTokenSecretKey))
-}
-
-func verifyToken(tokenString string, secret string) error {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte(secret), nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	if !token.Valid {
-		return fmt.Errorf("token non valide")
-	}
-
-	return nil
-}
-
-// fonction de génération du token de rafraichissement
-func generateRefreshToken(userID string) (string, error) {
-	claims := jwt.MapClaims{
-		"userId": userID,
-		"exp":    time.Now().Add(RefreshTokenExpireTime).Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(RefreshTokenSecretKey))
-}
-
 // fonction de recuperation de l'ID de l'utilisateur à partir du token
 func getUserIDFromToken(tokenString string) (string, error) {
 	token, _ := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
@@ -417,7 +380,45 @@ func authMiddleware(c *gin.Context) {
 	c.Next()
 }
 
-func generateTokenAndRefrechToken(Id string, c *gin.Context) (string, string, bool) {
+// fonction de génération du token d'accès JWT
+func generateToken(userID string) (string, error) {
+	claims := jwt.MapClaims{
+		"userId": userID,
+		"exp":    time.Now().Add(AccessTokenExpireTime).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(AccessTokenSecretKey))
+}
+
+// fonction de vérification du token d'accès JWT
+func verifyToken(tokenString string, secret string) error {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		return []byte(secret), nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if !token.Valid {
+		return fmt.Errorf("token non valide")
+	}
+
+	return nil
+}
+
+// fonction de génération du token JWT de rafraichissement
+func generateRefreshToken(userID string) (string, error) {
+	claims := jwt.MapClaims{
+		"userId": userID,
+		"exp":    time.Now().Add(RefreshTokenExpireTime).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(RefreshTokenSecretKey))
+}
+
+// fonction de génération du token et du token de rafraichissement
+func generateTokenAndRefreshToken(Id string, c *gin.Context) (string, string, bool) {
 	token, err := generateToken(Id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de la génération du token"})
@@ -432,6 +433,7 @@ func generateTokenAndRefrechToken(Id string, c *gin.Context) (string, string, bo
 	return token, refreshToken, false
 }
 
+// fonction de hachage du mot de passe
 func hashPassword(password string) (string, error) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -440,10 +442,8 @@ func hashPassword(password string) (string, error) {
 	return string(hashedPassword), nil
 }
 
+// fonction de vérification du mot de passe
 func checkPasswordHash(password, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
