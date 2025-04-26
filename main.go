@@ -64,7 +64,7 @@ func main() {
 	r.GET("/api/auth/verify-token", verifyTokenHandler)
 
 	// Route publique pour récupérer tous les livres
-	r.GET("/books", getBooksHandler(db))
+	r.GET("/api/books", getBooksHandler(db))
 
 	// Route securisée pour les livres
 	sr := r.Group("/api")
