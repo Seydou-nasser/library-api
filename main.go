@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -28,8 +29,8 @@ func main() {
 
 	AccessTokenSecretKey = env.AccessTokenSecretKey
 	RefreshTokenSecretKey = env.RefreshTokenSecretKey
-	AccessTokenExpireTime = time.Duration(env.AccessTokenExpiresIn) * time.Minute
-	RefreshTokenExpireTime = time.Duration(env.RefreshTokenExpiresIn) * time.Hour
+	AccessTokenExpireTime = time.Duration(env.AccessTokenExpiresIn) * time.Hour
+	RefreshTokenExpireTime = time.Duration(env.RefreshTokenExpiresIn) * time.Hour * 24
 
 	// Connect to the PostgreSQL database
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s", env.Host, env.User, env.Password, env.Dbname, env.Port, env.Sslmode)
@@ -44,19 +45,31 @@ func main() {
 
 	r := gin.Default()
 
+	// Configuration CORS pour autoriser les requêtes de l'application front-end
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
+
 	// Route publique pour la connexion et l'inscription
-	r.POST("/api/login", loginHandler(db))
+	r.POST("/api/auth/login", loginHandler(db))
 
-	r.POST("/api/register", registerHandler(db))
+	r.POST("/api/auth/register", registerHandler(db))
 
-	r.GET("/api/refresh-token", refreshTokenHandler)
+	r.GET("/api/auth/refresh-token", refreshTokenHandler)
+
+	r.GET("/api/auth/verify-token", verifyTokenHandler)
+
+	// Route publique pour récupérer tous les livres
+	r.GET("/books", getBooksHandler(db))
 
 	// Route securisée pour les livres
 	sr := r.Group("/api")
 
 	sr.Use(authMiddleware)
-
-	sr.GET("/books", getBooksHandler(db))
 
 	sr.GET("/books/:id", getBookByIdHandler(db))
 
@@ -242,7 +255,7 @@ func loginHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"token": token, "refreshToken": refreshToken})
+		c.JSON(http.StatusOK, gin.H{"token": token, "refreshToken": refreshToken, "userId": dbUser.ID, "userName": dbUser.Username})
 	}
 }
 
@@ -283,8 +296,7 @@ func registerHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"token": token, "refreshToken": refreshToken})
-
+		c.JSON(http.StatusCreated, gin.H{"token": token, "refreshToken": refreshToken, "userId": newUser.ID, "username": newUser.Username})
 	}
 }
 
@@ -312,6 +324,21 @@ func refreshTokenHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"token": newToken})
+}
+
+// verify token handler
+func verifyTokenHandler(c *gin.Context) {
+	token := strings.Split(c.Request.Header.Get("Authorization"), " ")
+	if len(token) < 2 {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": "Token es obligatoire"})
+		return
+	}
+	err := verifyToken(token[1], AccessTokenSecretKey)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": "Token non valide"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Token valide"})
 }
 
 // Middleware de vérification de l'appartenance du livre à l'utilisateur
