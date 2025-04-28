@@ -125,24 +125,16 @@ func addBooksHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		newBook := models.Book{
-			ID:        generateID(),
-			Title:     newAddBook.Title,
-			Author:    newAddBook.Author,
-			Year:      newAddBook.Year,
-			Pages:     newAddBook.Pages,
-			Price:     newAddBook.Price,
-			Publisher: newAddBook.Publisher,
-			UserID:    c.MustGet("userId").(string),
-		}
+		newBook := newAddBook.ConvertToBook()
 
+		newBook.ID = generateID()
+
+		newBook.UserID = c.MustGet("userId").(string)
+		fmt.Println(newBook)
 		result := db.Create(&newBook)
 		if result.Error != nil {
-			fmt.Println(result.Error)
-			if result.Error == gorm.ErrDuplicatedKey {
-				c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'ajout du livre"})
-				return
-			}
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de l'ajout du livre"})
+			return
 		}
 
 		c.IndentedJSON(http.StatusCreated, newBook)
@@ -165,14 +157,7 @@ func updateBooksByIdHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		result := db.Model(&models.Book{}).Where("id = ?", id).Updates(models.Book{
-			Title:     updatedBook.Title,
-			Author:    updatedBook.Author,
-			Year:      updatedBook.Year,
-			Pages:     updatedBook.Pages,
-			Price:     updatedBook.Price,
-			Publisher: updatedBook.Publisher,
-		})
+		result := db.Model(&models.Book{}).Where("id = ?", id).Updates(updatedBook.ConvertToBook())
 
 		if result.Error != nil {
 			if result.Error == gorm.ErrRecordNotFound {
@@ -224,9 +209,6 @@ func loginHandler(db *gorm.DB) gin.HandlerFunc {
 		var loginUser models.User
 		if err := c.ShouldBindJSON(&loginUser); err != nil {
 			if strings.Contains(err.Error(), "required") {
-				c.JSON(http.StatusBadRequest, gin.H{"message": "Champs obligatoires manquants"})
-				return
-			} else {
 				c.JSON(http.StatusBadRequest, gin.H{"message": "Format JSON invalide"})
 				return
 			}
@@ -234,7 +216,15 @@ func loginHandler(db *gorm.DB) gin.HandlerFunc {
 
 		// Vérifier si l'utilisateur existe dans la base de données
 		var dbUser models.User
-		result := db.Where("username = ?", loginUser.Username).First(&dbUser)
+		var result *gorm.DB
+		if loginUser.Username == "" && loginUser.Email != "" {
+			result = db.Where("email = ?", loginUser.Email).First(&dbUser)
+		} else if loginUser.Username != "" && loginUser.Email == "" {
+			result = db.Where("username = ?", loginUser.Username).First(&dbUser)
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Nom d'utilisateur ou email requis"})
+			return
+		}
 		if result.Error != nil {
 			if result.Error == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusUnauthorized, gin.H{"message": "Nom d'utilisateur invalide"})
@@ -250,12 +240,12 @@ func loginHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		token, refreshToken, shouldReturn := generateTokenAndRefreshToken(loginUser.ID, c)
+		token, refreshToken, shouldReturn := generateTokenAndRefreshToken(dbUser.ID, c)
 		if shouldReturn {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"token": token, "refreshToken": refreshToken, "userId": dbUser.ID, "userName": dbUser.Username})
+		c.JSON(http.StatusOK, gin.H{"token": token, "refreshToken": refreshToken, "userId": dbUser.ID, "userName": dbUser.Username, "email": dbUser.Email})
 	}
 }
 
@@ -402,7 +392,12 @@ func authMiddleware(c *gin.Context) {
 		return
 	}
 
-	userID, _ := getUserIDFromToken(token[1])
+	userID, er := getUserIDFromToken(token[1])
+	if er != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": "Token non valide"})
+		c.Abort()
+		return
+	}
 	c.Set("userId", userID)
 	c.Next()
 }
