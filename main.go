@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,12 +90,29 @@ func main() {
 // Handler pour récupérer tous les livres
 func getBooksHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var bks []models.Book
-		if err := db.Find(&bks).Error; err != nil {
+		// Récupérer les paramètres de pagination depuis la requête
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+		if page < 1 {
+			page = 1
+		}
+		if limit < 1 || limit > 100 {
+			limit = 10
+		}
+
+		// Calculer l'offset
+		offset := (page - 1) * limit
+
+		// Récupérer les livres avec pagination
+		var books []models.Book
+		if err := db.Offset(offset).Limit(limit).Find(&books).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Erreur lors de la récupération des livres"})
 			return
 		}
-		c.JSON(http.StatusOK, bks)
+
+		c.JSON(http.StatusOK, books)
+
 	}
 }
 
